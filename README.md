@@ -31,18 +31,18 @@ poetry run python -m spacy download en_core_web_sm
 poetry run python -m scripts.build_index
 ```
 
-5) Start the API server (auto-loads saved index if present)
+5) Start the Streamlit UI (optional)
+```
+poetry run streamlit run streamlit_app.py
+```
+- By default, the UI will try the API; if unavailable, it will auto-load the local engine and saved index.
+
+6) Start the API server (auto-loads saved index if present)
 ```
 poetry run uvicorn api:app --reload
 ```
 - Health: http://localhost:8000/health
 - Search: http://localhost:8000/search?q=sci-fi%20movies%20from%20the%2090s%20with%20Tom%20Hanks
-
-6) Start the Streamlit UI (optional)
-```
-poetry run streamlit run streamlit_app.py
-```
-- By default, the UI will try the API; if unavailable, it will auto-load the local engine and saved index.
 
 ## Project Structure
 ```
