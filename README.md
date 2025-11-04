@@ -28,7 +28,7 @@ poetry run python -m spacy download en_core_web_sm
 
 4) Build the vector index (one-time; creates models/faiss_index.*)
 ```
-poetry run python scripts/build_index.py
+poetry run python -m scripts.build_index
 ```
 
 5) Start the API server (auto-loads saved index if present)

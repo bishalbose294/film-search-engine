@@ -134,7 +134,7 @@ if search_btn and query.strip():
 				c1, c2 = st.columns([1, 4])  # small image column + large text column
 				with c1:
 					if movie.get('poster_url'):
-						st.image(movie['poster_url'], use_column_width=True)  # poster
+						st.image(movie['poster_url'], use_container_width=True)  # poster
 				with c2:
 					st.subheader(f"{i}. {movie['title']} ({movie['year']})")  # title + year
 					st.caption(f"Score: {score:.3f} | Similarity: {sim:.3f}")  # scores

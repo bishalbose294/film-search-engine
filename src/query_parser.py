@@ -67,7 +67,7 @@ class QueryParser:
 			raise ValueError("Query cannot be empty")
 
 		q = query.strip().lower()  # normalize spaces and casing
-		logger.debug(f"[Parser] Parsing query: {q}")  # trace
+		logger.debug(f"[Parser] Input query: '{query}' -> normalized: '{q}'")  # trace
 
 		# 1) Extract year range
 		year_range = self._extract_year_range(q)
@@ -90,34 +90,50 @@ class QueryParser:
 			year_range=year_range,
 			keywords=keywords
 		)
-		logger.debug(f"[Parser] Parsed: genres={parsed.genres} actors={parsed.actors[:3]} year={parsed.year_range} keywords={parsed.keywords}")
+		logger.debug(
+			"[Parser] Parsed result | genres=%s | actors=%s | directors=%s | year_range=%s | keywords=%s",
+			parsed.genres,
+			parsed.actors[:5],
+			parsed.directors[:5],
+			parsed.year_range,
+			parsed.keywords,
+		)
 		return parsed
 
 	def _extract_year_range(self, q: str) -> Optional[Tuple[int, int]]:
+		logger.debug("[Parser] Year extraction: scanning '%s'", q)
 		# 1990-1999 explicit range
 		r = self.RE_RANGE.search(q)
 		if r:
 			start, end = int(r.group(1)), int(r.group(2))
+			logger.debug("[Parser] Found explicit range match: %s-%s", start, end)
 			if start > end:  # normalize order
 				start, end = end, start
+			logger.debug("[Parser] Normalized range -> (%s, %s)", start, end)
 			return (start, end)
 
 		# before / after boundaries
 		m = self.RE_BEFORE.search(q)
 		if m:
 			end = int(m.group(1))
-			return (1900, end - 1)
+			res = (1900, end - 1)
+			logger.debug("[Parser] Found 'before' boundary: < %s -> range %s", end, res)
+			return res
 		m = self.RE_AFTER.search(q)
 		if m:
 			start = int(m.group(1))
-			return (start, 2100)
+			res = (start, 2100)
+			logger.debug("[Parser] Found 'after' boundary: > %s -> range %s", start, res)
+			return res
 
 		# early/mid/late 2000s
 		m = self.RE_CENTURY_DECADE.search(q)
 		if m:
 			prefix = (m.group("prefix") or "").lower()
 			century = int(m.group("century"))
-			return self._prefix_to_range(century, prefix)
+			res = self._prefix_to_range(century, prefix)
+			logger.debug("[Parser] Found century-decade '%s' with prefix '%s' -> %s", century, prefix or "-", res)
+			return res
 
 		# 90s/80s decade mapping (00-29->2000s, 30-99->1900s)
 		m = self.RE_DECADE.search(q)
@@ -125,14 +141,18 @@ class QueryParser:
 			prefix = (m.group("prefix") or "").lower()
 			dec = int(m.group("decade"))
 			base = 1900 if dec >= 30 else 2000
-			return self._prefix_to_range(base + dec * 10, prefix)
+			res = self._prefix_to_range(base + dec, prefix)
+			logger.debug("[Parser] Found decade '%s' (base %s) prefix '%s' -> %s", dec, base, prefix or "-", res)
+			return res
 
 		# single year
 		m = self.RE_YEAR.search(q)
 		if m:
 			y = int(m.group(0))
+			logger.debug("[Parser] Found single year -> (%s, %s)", y, y)
 			return (y, y)
 
+		logger.debug("[Parser] No year information found")
 		return None  # nothing found
 
 	def _prefix_to_range(self, decade_start: int, prefix: str) -> Tuple[int, int]:
@@ -146,27 +166,49 @@ class QueryParser:
 		return (decade_start, decade_start + 9)  # full decade default
 
 	def _extract_genres(self, q: str) -> Set[str]:
+		logger.debug("[Parser] Genre extraction from: '%s'", q)
 		genres: Set[str] = set()  # accumulator
 		# Synonym substring matches (e.g., "sci-fi" -> "Science Fiction")
 		for key, val in self.GENRE_SYNONYMS.items():
 			if key in q:
 				genres.add(val)
+				logger.debug("[Parser] Genre synonym match: '%s' -> '%s'", key, val)
 		# Direct keyword hits of canonical names
 		for g in self.GENRE_KEYWORDS:
 			if g in q:
 				genres.add(g.title())
+				logger.debug("[Parser] Genre keyword match: '%s'", g)
 		# Fuzzy token-level match to handle small typos/variants
 		for token in set(re.findall(r"[a-z]+", q)):
 			match, score, _ = process.extractOne(token, self._genre_list, scorer=fuzz.ratio)
 			if match and score >= 88:
 				genres.add(match.title())
+				logger.debug("[Parser] Genre fuzzy match: token='%s' -> '%s' (score=%s)", token, match, score)
 		return genres
 
 	def _extract_people(self, q: str) -> Tuple[Set[str], Set[str]]:
+		logger.debug("[Parser] People extraction from: '%s'", q)
 		actors: Set[str] = set()  # matched actors
 		directors: Set[str] = set()  # matched directors
 
 		candidates: Set[str] = set()  # raw name candidates
+
+		# Rule-based extraction for common patterns like "with tom hanks", "starring keanu reeves"
+		for m in re.finditer(r"\b(with|starring|featuring)\s+([a-z]+\s+[a-z]+)\b", q):
+			name = m.group(2).strip().lower()
+			candidates.add(name)
+			logger.debug("[Parser] Pattern people match: '%s' -> '%s'", m.group(1), name)
+
+		# Rule-based extraction for director phrases: "directed by wes cravin", "by wes cravin"
+		director_cands: Set[str] = set()
+		for m in re.finditer(r"\bdirected\s+by\s+([a-z]+\s+[a-z]+)\b", q):
+			name = m.group(1).strip().lower()
+			director_cands.add(name)
+			logger.debug("[Parser] Pattern director match: 'directed by' -> '%s'", name)
+		for m in re.finditer(r"\bby\s+([a-z]+\s+[a-z]+)\b", q):
+			name = m.group(1).strip().lower()
+			director_cands.add(name)
+			logger.debug("[Parser] Pattern director match: 'by' -> '%s'", name)
 
 		# Use spaCy NER when available for PERSON entities
 		if self._nlp is not None:
@@ -174,31 +216,57 @@ class QueryParser:
 			for ent in doc.ents:
 				if ent.label_ == "PERSON":
 					candidates.add(ent.text.strip().lower())
+			logger.debug("[Parser] spaCy PERSON candidates: %s", list(candidates)[:10])
 		else:
 			# Fallback heuristic: consider bigrams as potential names
 			for a, b in zip(q.split(), q.split()[1:]):
 				candidates.add(f"{a} {b}")
+			logger.debug("[Parser] Heuristic name candidates: %s", list(candidates)[:10])
 
-		# Fuzzy match candidates against known lists
+		# Preferential fuzzy match for explicit director candidates
+		for cand in director_cands:
+			best_director = process.extractOne(cand, self._director_list, scorer=fuzz.WRatio)
+			if best_director and best_director[1] >= 80:
+				directors.add(best_director[0])
+				logger.debug("[Parser] Director fuzzy match (pattern): '%s' -> '%s' (score=%s)", cand, best_director[0], best_director[1])
+
+		# General fuzzy match candidates against known lists
 		for cand in candidates:
 			best_actor = process.extractOne(cand, self._actor_list, scorer=fuzz.WRatio)
 			best_director = process.extractOne(cand, self._director_list, scorer=fuzz.WRatio)
 			if best_actor and best_actor[1] >= 85:
 				actors.add(best_actor[0])
+				logger.debug("[Parser] Actor fuzzy match: '%s' -> '%s' (score=%s)", cand, best_actor[0], best_actor[1])
 			elif best_director and best_director[1] >= 85:
 				directors.add(best_director[0])
+				logger.debug("[Parser] Director fuzzy match: '%s' -> '%s' (score=%s)", cand, best_director[0], best_director[1])
 
 		# Bonus: add exact substrings, which helps when the full name appears verbatim
 		for name in self._actor_list[:10000]:  # cap for performance
 			if name in q:
 				actors.add(name)
+				logger.debug("[Parser] Actor substring match: '%s'", name)
 		for name in self._director_list[:10000]:
 			if name in q:
 				directors.add(name)
+				logger.debug("[Parser] Director substring match: '%s'", name)
+
+		# Conservative fallback: if no actor found from known lists, use plausible two-word PERSON candidates
+		if not actors and candidates:
+			stop = {"with", "by", "from", "the", "in", "of", "and", "or"}
+			plausible = set()
+			for cand in candidates:
+				parts = cand.split()
+				if len(parts) == 2 and all(p.isalpha() for p in parts) and all(p not in stop for p in parts):
+					plausible.add(cand)
+			if plausible:
+				logger.debug("[Parser] Fallback: adding plausible actor candidates %s", list(plausible))
+				actors.update(plausible)
 
 		return actors, directors
 
 	def _extract_keywords(self, q: str, genres: Set[str], actors: Set[str], directors: Set[str]) -> List[str]:
+		logger.debug("[Parser] Keyword extraction from: '%s'", q)
 		# Tokenize to alphanumerics/apostrophes
 		tokens = re.findall(r"[a-z0-9']+", q)
 		# Build removal set: genres, synonyms, matched names, and common stop terms
@@ -213,10 +281,13 @@ class QueryParser:
 		})
 		# Keep tokens not in removal set, deduplicate while preserving order
 		keywords = [t for t in tokens if t not in remove]
+		logger.debug("[Parser] Tokens: %s", tokens)
+		logger.debug("[Parser] Removed tokens: %s", sorted(list(remove))[:50])
 		seen = set()
 		uniq = []
 		for t in keywords:
 			if t not in seen:
 				seen.add(t)
 				uniq.append(t)
+		logger.debug("[Parser] Final keywords: %s", uniq)
 		return uniq

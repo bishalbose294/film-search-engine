@@ -95,6 +95,14 @@ class SearchEngine:
 	def search(self, query: str, top_k: int = 10) -> List[SearchResult]:
 		"""Run semantic search, apply filters, and rank results."""
 		parsed = self.parse_query(query)  # structured query
+		logger.debug(
+			"[Engine] Parsed summary | genres=%s actors=%s directors=%s year=%s keywords=%s",
+			parsed.genres,
+			parsed.actors[:5],
+			parsed.directors[:5],
+			parsed.year_range,
+			parsed.keywords,
+		)
 
 		# Vector search to get candidates (retrieve more than top_k to allow filtering)
 		logger.debug("[Engine] Generating query embedding and searching FAISS")  # trace
@@ -112,10 +120,25 @@ class SearchEngine:
 			if parsed.year_range and movie.year:
 				start, end = parsed.year_range  # unpack range
 				if not (start <= movie.year <= end):  # outside range?
+					logger.debug(
+						"[Engine] Filtered out by year | movie=%s (%s) | movie_year=%s | required=%s-%s",
+						movie.title,
+						movie.id,
+						movie.year,
+						start,
+						end,
+					)
 					continue  # reject
 
 			# Compute final hybrid score
 			score = self.ranker.compute_final_score(movie, parsed, semantic_similarity=sim, popularity_bounds=self.pop_bounds)  # score
+			logger.debug(
+				"[Engine] Candidate kept | movie=%s (%s) | sim=%.3f | final_score=%.3f",
+				movie.title,
+				movie.id,
+				sim,
+				score,
+			)
 			results.append(SearchResult(movie=movie, score=score, similarity=sim))  # collect
 
 		# Sort results by final score descending and return top_k
