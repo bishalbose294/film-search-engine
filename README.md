@@ -84,12 +84,6 @@ poetry run streamlit run streamlit_app.py
 - Run `scripts/build_index.py` once to enable fast API/UI startup via prebuilt index.
 - If `models/faiss_index.*` exist, the API/UI will load them; otherwise they will build an index on demand.
 
-## Troubleshooting
-- If running outside `poetry shell`, always prefix commands with `poetry run ...`.
-- If the API is slow on first request, it may be loading models; subsequent queries are fast.
-- Windows PowerShell: use `;` to chain commands.
 
-## Roadmap (Optional Enhancements)
-- Tune ranking weights and add fuzzy name matching
-- Add caching for repeated queries
-- Add authentication/rate limiting if exposing publicly
+## Tests Run
+- run tests using cmd as `poetry run python -m tests.<test_file_name_without_py>`
