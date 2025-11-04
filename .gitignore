@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+ 
+# Project-specific artifacts (do not commit)
+# FAISS binary index and metadata saved by scripts/build_index.py and runtime
+models/*.index
+models/*.pkl
+
+# OS/editor junk (safeguard in case global ignores are missing)
+.DS_Store
+Thumbs.db

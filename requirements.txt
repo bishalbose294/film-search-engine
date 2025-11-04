@@ -1,0 +1,28 @@
+# Core Dependencies
+pandas>=1.3.0
+numpy>=1.21.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+spacy>=3.5.0
+click>=8.0.0
+
+# ML runtime (present due to transformers deps in environment)
+tf-keras
+
+# API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+requests>=2.31.0
+
+# Streamlit UI
+streamlit>=1.36.0
+
+# Logging
+loguru>=0.7.2
+
+# Optional Utilities
+rapidfuzz>=2.0.0
+
+# Note: spaCy model must be downloaded separately:
+# python -m spacy download en_core_web_sm
+

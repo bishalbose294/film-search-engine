@@ -1,0 +1,222 @@
+"""
+Query parsing module.
+Extracts entities (genres, actors, directors), date ranges, and keywords from natural language queries.
+Falls back gracefully if spaCy model is unavailable.
+"""
+
+import re  # regex for date/keyword extraction
+from typing import List, Optional, Tuple, Set  # type annotations
+
+try:
+	import spacy  # NLP pipeline for named entities
+	_SPACY_AVAILABLE = True  # flag if spaCy is importable
+except Exception:
+	_SPACY_AVAILABLE = False  # fallback path when spaCy unavailable
+
+from rapidfuzz import process, fuzz  # fuzzy matching utilities
+
+from loguru import logger  # console logging
+
+from .models import ParsedQuery  # structured query representation
+from .data_loader import DataLoader  # for genre synonyms
+
+
+class QueryParser:
+	"""
+	Parses natural language queries into a structured ParsedQuery.
+	Uses spaCy NER to find PERSON entities (actors/directors), regex for date ranges,
+	and a synonym map for genres with fuzzy matching support.
+	"""
+
+	# Pre-compiled regex patterns for date expressions
+	RE_DECADE = re.compile(r"(?P<prefix>early|mid|late)?\s*(?P<decade>\d{2})\s*'?s", re.I)  # '90s, mid 80s
+	RE_CENTURY_DECADE = re.compile(r"(?P<prefix>early|mid|late)?\s*(?P<century>\d{4})\s*'?s", re.I)  # early 2000s
+	RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")  # single year like 1995
+	RE_RANGE = re.compile(r"\b(19\d{2}|20\d{2})\s*[-–to]{1,3}\s*(19\d{2}|20\d{2})\b", re.I)  # 1990-1999
+	RE_BEFORE = re.compile(r"before\s+(19\d{2}|20\d{2})", re.I)  # before 2000
+	RE_AFTER = re.compile(r"after\s+(19\d{2}|20\d{2})", re.I)  # after 2010
+
+	# Genre keywords (normalized) for extraction beyond synonyms
+	GENRE_KEYWORDS: Set[str] = set([g.lower() for g in DataLoader.GENRE_SYNONYMS.values()])  # canonical genre names
+	GENRE_SYNONYMS = {k.lower(): v for k, v in DataLoader.GENRE_SYNONYMS.items()}  # mapping variants->canonical
+
+	def __init__(self, known_actors: Optional[Set[str]] = None, known_directors: Optional[Set[str]] = None):
+		# Lowercased known names for efficient membership and fuzzy matching reference
+		self.known_actors = {a.lower() for a in (known_actors or set())}
+		self.known_directors = {d.lower() for d in (known_directors or set())}
+
+		# Initialize spaCy model if available; otherwise proceed without it
+		self._nlp = None
+		if _SPACY_AVAILABLE:
+			try:
+				self._nlp = spacy.load("en_core_web_sm")
+				logger.debug("[Parser] spaCy model en_core_web_sm loaded")
+			except Exception as e:
+				logger.warning(f"[Parser] spaCy load failed, falling back to heuristics: {e}")
+				self._nlp = None
+
+		# Pre-build lists for fuzzy search to avoid recreating on each parse
+		self._actor_list = list(self.known_actors)
+		self._director_list = list(self.known_directors)
+		self._genre_list = sorted(list(self.GENRE_KEYWORDS))
+		logger.debug(f"[Parser] Initialized with {len(self._actor_list)} actors, {len(self._director_list)} directors")
+
+	def parse(self, query: str) -> ParsedQuery:
+		"""Main entry: produce a ParsedQuery from a raw string."""
+		if not query or not query.strip():  # empty input guard
+			raise ValueError("Query cannot be empty")
+
+		q = query.strip().lower()  # normalize spaces and casing
+		logger.debug(f"[Parser] Parsing query: {q}")  # trace
+
+		# 1) Extract year range
+		year_range = self._extract_year_range(q)
+
+		# 2) Extract genres (synonyms + direct keywords + fuzzy)
+		genres = self._extract_genres(q)
+
+		# 3) Extract people (actors/directors) with fuzzy
+		actors, directors = self._extract_people(q)
+
+		# 4) Remaining keywords (rough heuristic): remove known tokens
+		keywords = self._extract_keywords(q, genres, actors, directors)
+
+		# Package into structured object
+		parsed = ParsedQuery(
+			raw_query=query,
+			genres=sorted(list(genres)),
+			actors=sorted(list(actors)),
+			directors=sorted(list(directors)),
+			year_range=year_range,
+			keywords=keywords
+		)
+		logger.debug(f"[Parser] Parsed: genres={parsed.genres} actors={parsed.actors[:3]} year={parsed.year_range} keywords={parsed.keywords}")
+		return parsed
+
+	def _extract_year_range(self, q: str) -> Optional[Tuple[int, int]]:
+		# 1990-1999 explicit range
+		r = self.RE_RANGE.search(q)
+		if r:
+			start, end = int(r.group(1)), int(r.group(2))
+			if start > end:  # normalize order
+				start, end = end, start
+			return (start, end)
+
+		# before / after boundaries
+		m = self.RE_BEFORE.search(q)
+		if m:
+			end = int(m.group(1))
+			return (1900, end - 1)
+		m = self.RE_AFTER.search(q)
+		if m:
+			start = int(m.group(1))
+			return (start, 2100)
+
+		# early/mid/late 2000s
+		m = self.RE_CENTURY_DECADE.search(q)
+		if m:
+			prefix = (m.group("prefix") or "").lower()
+			century = int(m.group("century"))
+			return self._prefix_to_range(century, prefix)
+
+		# 90s/80s decade mapping (00-29->2000s, 30-99->1900s)
+		m = self.RE_DECADE.search(q)
+		if m:
+			prefix = (m.group("prefix") or "").lower()
+			dec = int(m.group("decade"))
+			base = 1900 if dec >= 30 else 2000
+			return self._prefix_to_range(base + dec * 10, prefix)
+
+		# single year
+		m = self.RE_YEAR.search(q)
+		if m:
+			y = int(m.group(0))
+			return (y, y)
+
+		return None  # nothing found
+
+	def _prefix_to_range(self, decade_start: int, prefix: str) -> Tuple[int, int]:
+		# Convert optional prefix into a sub-range within the decade
+		if prefix == "early":  # first half-decade
+			return (decade_start, decade_start + 4)
+		if prefix == "mid":  # second half-decade
+			return (decade_start + 5, decade_start + 9)
+		if prefix == "late":  # last third bias
+			return (decade_start + 7, decade_start + 9)
+		return (decade_start, decade_start + 9)  # full decade default
+
+	def _extract_genres(self, q: str) -> Set[str]:
+		genres: Set[str] = set()  # accumulator
+		# Synonym substring matches (e.g., "sci-fi" -> "Science Fiction")
+		for key, val in self.GENRE_SYNONYMS.items():
+			if key in q:
+				genres.add(val)
+		# Direct keyword hits of canonical names
+		for g in self.GENRE_KEYWORDS:
+			if g in q:
+				genres.add(g.title())
+		# Fuzzy token-level match to handle small typos/variants
+		for token in set(re.findall(r"[a-z]+", q)):
+			match, score, _ = process.extractOne(token, self._genre_list, scorer=fuzz.ratio)
+			if match and score >= 88:
+				genres.add(match.title())
+		return genres
+
+	def _extract_people(self, q: str) -> Tuple[Set[str], Set[str]]:
+		actors: Set[str] = set()  # matched actors
+		directors: Set[str] = set()  # matched directors
+
+		candidates: Set[str] = set()  # raw name candidates
+
+		# Use spaCy NER when available for PERSON entities
+		if self._nlp is not None:
+			doc = self._nlp(q)
+			for ent in doc.ents:
+				if ent.label_ == "PERSON":
+					candidates.add(ent.text.strip().lower())
+		else:
+			# Fallback heuristic: consider bigrams as potential names
+			for a, b in zip(q.split(), q.split()[1:]):
+				candidates.add(f"{a} {b}")
+
+		# Fuzzy match candidates against known lists
+		for cand in candidates:
+			best_actor = process.extractOne(cand, self._actor_list, scorer=fuzz.WRatio)
+			best_director = process.extractOne(cand, self._director_list, scorer=fuzz.WRatio)
+			if best_actor and best_actor[1] >= 85:
+				actors.add(best_actor[0])
+			elif best_director and best_director[1] >= 85:
+				directors.add(best_director[0])
+
+		# Bonus: add exact substrings, which helps when the full name appears verbatim
+		for name in self._actor_list[:10000]:  # cap for performance
+			if name in q:
+				actors.add(name)
+		for name in self._director_list[:10000]:
+			if name in q:
+				directors.add(name)
+
+		return actors, directors
+
+	def _extract_keywords(self, q: str, genres: Set[str], actors: Set[str], directors: Set[str]) -> List[str]:
+		# Tokenize to alphanumerics/apostrophes
+		tokens = re.findall(r"[a-z0-9']+", q)
+		# Build removal set: genres, synonyms, matched names, and common stop terms
+		remove: Set[str] = set()
+		remove.update([g.lower() for g in genres])
+		remove.update(self.GENRE_SYNONYMS.keys())
+		remove.update([a for a in actors])
+		remove.update([d for d in directors])
+		remove.update({
+			"movie", "movies", "film", "films", "starring", "with", "featuring",
+			"directed", "by", "from", "in", "the", "of", "about", "and", "or"
+		})
+		# Keep tokens not in removal set, deduplicate while preserving order
+		keywords = [t for t in tokens if t not in remove]
+		seen = set()
+		uniq = []
+		for t in keywords:
+			if t not in seen:
+				seen.add(t)
+				uniq.append(t)
+		return uniq
