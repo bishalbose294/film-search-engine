@@ -5,7 +5,6 @@ Handles loading movies from JSONL/CSV and cleaning/normalizing the data.
 
 # Standard libs for JSON parsing, regex, typing, and paths
 import json  # read JSON lines
-import re  # simple text processing
 from typing import List, Dict  # type hints
 from pathlib import Path  # filesystem-safe paths
 
