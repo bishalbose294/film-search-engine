@@ -96,12 +96,7 @@ class SearchEngine:
 		"""Run semantic search, apply filters, and rank results."""
 		parsed = self.parse_query(query)  # structured query
 		logger.debug(
-			"[Engine] Parsed summary | genres=%s actors=%s directors=%s year=%s keywords=%s",
-			parsed.genres,
-			parsed.actors[:5],
-			parsed.directors[:5],
-			parsed.year_range,
-			parsed.keywords,
+			f"[Engine] Parsed summary | genres={parsed.genres} actors={parsed.actors[:5]} directors={parsed.directors[:5]} year={parsed.year_range} keywords={parsed.keywords}"
 		)
 
 		# Vector search to get candidates (retrieve more than top_k to allow filtering)
@@ -116,55 +111,51 @@ class SearchEngine:
 			movie = self.vector_store.get_movie_by_id(movie_id)  # fetch movie
 			if not movie:  # safety check
 				continue  # skip
-			# Apply strict year filtering if specified in parsed query
+			# Apply strict year filtering if specified in parsed query (AND condition)
 			if parsed.year_range and movie.year:
 				start, end = parsed.year_range  # unpack range
 				if not (start <= movie.year <= end):  # outside range?
 					logger.debug(
-						"[Engine] Filtered out by year | movie=%s (%s) | movie_year=%s | required=%s-%s",
-						movie.title,
-						movie.id,
-						movie.year,
-						start,
-						end,
+						f"[Engine] Filtered out by year | movie={movie.title} ({movie.id}) | movie_year={movie.year} | required={start}-{end}",
 					)
 					continue  # reject
 
-			# Apply strict actor filtering: if actors specified, movie must include ALL requested actors
+			# Apply genre filtering: if genres specified, movie must include AT LEAST ONE requested genre (OR within genres, AND with other conditions)
+			if parsed.genres:
+				movie_genres = {g.lower() for g in (movie.genres or [])}
+				# Check if movie has at least one of the requested genres
+				matching_genres = [g for g in parsed.genres if g.lower() in movie_genres]
+				if not matching_genres:
+					logger.debug(
+						f"[Engine] Filtered out by genres | movie={movie.title} ({movie.id}) | have={sorted(list(movie_genres))[:5]} | required_any={parsed.genres[:5]}",
+					)
+					continue
+
+			# Apply strict actor filtering: if actors specified, movie must include ALL requested actors (AND condition)
 			if parsed.actors:
 				movie_actors = {a.lower() for a in (movie.actors or [])}
 				missing = [a for a in parsed.actors if a.lower() not in movie_actors]
 				if missing:
 					logger.debug(
-						"[Engine] Filtered out by actors | movie=%s (%s) | have=%s | missing=%s",
-						movie.title,
-						movie.id,
-						sorted(list(movie_actors))[:5],
-						missing,
+						f"[Engine] Filtered out by actors | movie={movie.title} ({movie.id}) | have={sorted(list(movie_actors))[:5]} | missing={missing}",
 					)
 					continue
 
-			# Apply strict director filtering: if directors specified, movie director must match one
+			# Apply strict director filtering: if directors specified, movie director must be in the requested list (AND condition)
+			# Note: A movie has only one director, so if multiple directors are queried, the movie's director must match one of them
 			if parsed.directors:
 				movie_dir = (movie.director or '').lower()
-				if not any(d.lower() == movie_dir for d in parsed.directors):
+				# Movie's director must be in the requested directors list
+				if movie_dir not in [d.lower() for d in parsed.directors]:
 					logger.debug(
-						"[Engine] Filtered out by director | movie=%s (%s) | movie_director=%s | required_any=%s",
-						movie.title,
-						movie.id,
-						movie_dir,
-						parsed.directors[:5],
+						f"[Engine] Filtered out by directors | movie={movie.title} ({movie.id}) | movie_director={movie_dir} | required_in={parsed.directors[:5]}"
 					)
 					continue
 
 			# Compute final hybrid score
 			score = self.ranker.compute_final_score(movie, parsed, semantic_similarity=sim, popularity_bounds=self.pop_bounds)  # score
 			logger.debug(
-				"[Engine] Candidate kept | movie=%s (%s) | sim=%.3f | final_score=%.3f",
-				movie.title,
-				movie.id,
-				sim,
-				score,
+				f"[Engine] Candidate kept | movie={movie.title} ({movie.id}) | sim={sim:.3f} | final_score={score:.3f}"
 			)
 			results.append(SearchResult(movie=movie, score=score, similarity=sim))  # collect
 
