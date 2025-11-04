@@ -3,7 +3,7 @@ Ranking module.
 Combines semantic similarity with filter matching and metadata signals to produce a final score.
 """
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Tuple
 
 from .models import Movie, ParsedQuery
 

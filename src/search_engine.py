@@ -130,6 +130,33 @@ class SearchEngine:
 					)
 					continue  # reject
 
+			# Apply strict actor filtering: if actors specified, movie must include ALL requested actors
+			if parsed.actors:
+				movie_actors = {a.lower() for a in (movie.actors or [])}
+				missing = [a for a in parsed.actors if a.lower() not in movie_actors]
+				if missing:
+					logger.debug(
+						"[Engine] Filtered out by actors | movie=%s (%s) | have=%s | missing=%s",
+						movie.title,
+						movie.id,
+						sorted(list(movie_actors))[:5],
+						missing,
+					)
+					continue
+
+			# Apply strict director filtering: if directors specified, movie director must match one
+			if parsed.directors:
+				movie_dir = (movie.director or '').lower()
+				if not any(d.lower() == movie_dir for d in parsed.directors):
+					logger.debug(
+						"[Engine] Filtered out by director | movie=%s (%s) | movie_director=%s | required_any=%s",
+						movie.title,
+						movie.id,
+						movie_dir,
+						parsed.directors[:5],
+					)
+					continue
+
 			# Compute final hybrid score
 			score = self.ranker.compute_final_score(movie, parsed, semantic_similarity=sim, popularity_bounds=self.pop_bounds)  # score
 			logger.debug(

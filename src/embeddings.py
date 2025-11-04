@@ -6,7 +6,7 @@ Handles creating vector embeddings for movies and queries using sentence-transfo
 # Import NumPy for numerical arrays that store embeddings
 import numpy as np  # efficient numeric arrays
 # Import typing helpers for clear API contracts
-from typing import List, Union  # list and union types
+from typing import List  # list types
 # Import the SentenceTransformer model to convert text into embeddings
 from sentence_transformers import SentenceTransformer  # pre-trained embedding model
 

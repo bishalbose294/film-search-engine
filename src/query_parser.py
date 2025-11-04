@@ -6,12 +6,7 @@ Falls back gracefully if spaCy model is unavailable.
 
 import re  # regex for date/keyword extraction
 from typing import List, Optional, Tuple, Set  # type annotations
-
-try:
-	import spacy  # NLP pipeline for named entities
-	_SPACY_AVAILABLE = True  # flag if spaCy is importable
-except Exception:
-	_SPACY_AVAILABLE = False  # fallback path when spaCy unavailable
+import spacy  # NLP pipeline for named entities
 
 from rapidfuzz import process, fuzz  # fuzzy matching utilities
 
@@ -45,15 +40,9 @@ class QueryParser:
 		self.known_actors = {a.lower() for a in (known_actors or set())}
 		self.known_directors = {d.lower() for d in (known_directors or set())}
 
-		# Initialize spaCy model if available; otherwise proceed without it
-		self._nlp = None
-		if _SPACY_AVAILABLE:
-			try:
-				self._nlp = spacy.load("en_core_web_sm")
-				logger.debug("[Parser] spaCy model en_core_web_sm loaded")
-			except Exception as e:
-				logger.warning(f"[Parser] spaCy load failed, falling back to heuristics: {e}")
-				self._nlp = None
+		# Initialize spaCy model (assumed available)
+		self._nlp = spacy.load("en_core_web_sm")
+		logger.debug("[Parser] spaCy model en_core_web_sm loaded")
 
 		# Pre-build lists for fuzzy search to avoid recreating on each parse
 		self._actor_list = list(self.known_actors)
@@ -193,44 +182,15 @@ class QueryParser:
 
 		candidates: Set[str] = set()  # raw name candidates
 
-		# Rule-based extraction for common patterns like "with tom hanks", "starring keanu reeves"
-		for m in re.finditer(r"\b(with|starring|featuring)\s+([a-z]+\s+[a-z]+)\b", q):
-			name = m.group(2).strip().lower()
-			candidates.add(name)
-			logger.debug("[Parser] Pattern people match: '%s' -> '%s'", m.group(1), name)
 
-		# Rule-based extraction for director phrases: "directed by wes cravin", "by wes cravin"
-		director_cands: Set[str] = set()
-		for m in re.finditer(r"\bdirected\s+by\s+([a-z]+\s+[a-z]+)\b", q):
-			name = m.group(1).strip().lower()
-			director_cands.add(name)
-			logger.debug("[Parser] Pattern director match: 'directed by' -> '%s'", name)
-		for m in re.finditer(r"\bby\s+([a-z]+\s+[a-z]+)\b", q):
-			name = m.group(1).strip().lower()
-			director_cands.add(name)
-			logger.debug("[Parser] Pattern director match: 'by' -> '%s'", name)
+		# Use spaCy PERSON entities as candidates
+		doc = self._nlp(q)
+		for ent in doc.ents:
+			if ent.label_ == "PERSON":
+				candidates.add(ent.text.strip().lower())
+		logger.debug("[Parser] spaCy PERSON candidates: %s", list(candidates)[:10])
 
-		# Use spaCy NER when available for PERSON entities
-		if self._nlp is not None:
-			doc = self._nlp(q)
-			for ent in doc.ents:
-				if ent.label_ == "PERSON":
-					candidates.add(ent.text.strip().lower())
-			logger.debug("[Parser] spaCy PERSON candidates: %s", list(candidates)[:10])
-		else:
-			# Fallback heuristic: consider bigrams as potential names
-			for a, b in zip(q.split(), q.split()[1:]):
-				candidates.add(f"{a} {b}")
-			logger.debug("[Parser] Heuristic name candidates: %s", list(candidates)[:10])
-
-		# Preferential fuzzy match for explicit director candidates
-		for cand in director_cands:
-			best_director = process.extractOne(cand, self._director_list, scorer=fuzz.WRatio)
-			if best_director and best_director[1] >= 80:
-				directors.add(best_director[0])
-				logger.debug("[Parser] Director fuzzy match (pattern): '%s' -> '%s' (score=%s)", cand, best_director[0], best_director[1])
-
-		# General fuzzy match candidates against known lists
+		# Fuzzy match candidates against known lists
 		for cand in candidates:
 			best_actor = process.extractOne(cand, self._actor_list, scorer=fuzz.WRatio)
 			best_director = process.extractOne(cand, self._director_list, scorer=fuzz.WRatio)
@@ -241,27 +201,6 @@ class QueryParser:
 				directors.add(best_director[0])
 				logger.debug("[Parser] Director fuzzy match: '%s' -> '%s' (score=%s)", cand, best_director[0], best_director[1])
 
-		# Bonus: add exact substrings, which helps when the full name appears verbatim
-		for name in self._actor_list[:10000]:  # cap for performance
-			if name in q:
-				actors.add(name)
-				logger.debug("[Parser] Actor substring match: '%s'", name)
-		for name in self._director_list[:10000]:
-			if name in q:
-				directors.add(name)
-				logger.debug("[Parser] Director substring match: '%s'", name)
-
-		# Conservative fallback: if no actor found from known lists, use plausible two-word PERSON candidates
-		if not actors and candidates:
-			stop = {"with", "by", "from", "the", "in", "of", "and", "or"}
-			plausible = set()
-			for cand in candidates:
-				parts = cand.split()
-				if len(parts) == 2 and all(p.isalpha() for p in parts) and all(p not in stop for p in parts):
-					plausible.add(cand)
-			if plausible:
-				logger.debug("[Parser] Fallback: adding plausible actor candidates %s", list(plausible))
-				actors.update(plausible)
 
 		return actors, directors
 
