@@ -4,10 +4,8 @@ Executes semantic vector search, applies filters, and produces ranked results.
 """
 
 from dataclasses import dataclass  # lightweight containers for results
-from typing import List, Optional, Tuple  # type annotations for clarity
+from typing import List, Optional  # type annotations for clarity
 from pathlib import Path  # used for optional index presence checks
-
-import numpy as np  # kept for future array ops if needed
 
 # Import project modules for data structures and components
 from .models import Movie, ParsedQuery  # core data classes

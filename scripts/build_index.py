@@ -8,7 +8,7 @@ This script:
 4) Saves the index and metadata to models/
 
 Usage:
-    python scripts/build_index.py
+    poetry run python -m scripts.build_index
 
 After running this once, the API and Streamlit can load the saved index
 for faster startup.

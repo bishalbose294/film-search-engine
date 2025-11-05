@@ -3,20 +3,13 @@ Unit tests for QueryParser: decades, genres, and fuzzy entity matching.
 Run: python tests/test_query_parser.py
 """
 
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-	sys.path.insert(0, str(ROOT))
-
 from src.data_loader import DataLoader
 from src.query_parser import QueryParser
 
 
 def load_parser():
 	loader = DataLoader()
-	movies = loader.load_movies_from_jsonl(str(ROOT / 'data' / 'movies.jsonl'))
+	movies = loader.load_movies_from_jsonl('data/movies.jsonl')
 	actors = set(loader.get_all_actors(movies))
 	directors = set(loader.get_all_directors(movies))
 	return QueryParser(known_actors=actors, known_directors=directors)
