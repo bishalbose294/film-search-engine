@@ -73,17 +73,16 @@ poetry run uvicorn api:app --reload
 ## Useful Poetry Commands
 - Install deps: `poetry install`
 - Enter venv shell: `poetry shell`
-- Run a Python script: `poetry run python scripts/build_index.py`
+- Run a Python script: `poetry run python -m scripts.build_index`
 - Run API: `poetry run uvicorn api:app --reload`
 - Run Streamlit UI: `poetry run streamlit run streamlit_app.py`
-- Run tests: `poetry run python tests/test_query_parser.py`
+- Run tests: `poetry run python -m tests.test_phase1`
 - Install spaCy model: `poetry run python -m spacy download en_core_web_sm`
 
 ## Execution Notes
 - First-time runs will download the embedding model (~90MB) and spaCy model.
 - Run `scripts/build_index.py` once to enable fast API/UI startup via prebuilt index.
 - If `models/faiss_index.*` exist, the API/UI will load them; otherwise they will build an index on demand.
-
 
 ## Tests Run
 - run tests using cmd as `poetry run python -m tests.<test_file_name_without_py>`

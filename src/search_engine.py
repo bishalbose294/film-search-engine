@@ -11,6 +11,7 @@ from pathlib import Path  # used for optional index presence checks
 from .models import Movie, ParsedQuery  # core data classes
 from .embeddings import EmbeddingGenerator  # sentence-transformers wrapper
 from .vector_store import VectorStore  # FAISS index manager
+from .vector_store import validate_index_against_movies, delete_index_files
 from .ranking import Ranker  # hybrid ranking logic
 from .query_parser import QueryParser  # query understanding
 
@@ -60,22 +61,41 @@ class SearchEngine:
 		self.pop_bounds = (min(pops) if pops else 0.0, max(pops) if pops else 1.0)  # min/max
 		logger.debug(f"[Engine] Popularity bounds: {self.pop_bounds}")  # diagnostic
 
-		# Initialize or load FAISS index depending on saved files
-		if load_index_base_path and self._index_files_exist(load_index_base_path):  # saved index?
-			logger.info(f"[Engine] Loading saved FAISS index from '{load_index_base_path}'")
-			self.vector_store = VectorStore.load_index(load_index_base_path, movies=movies)  # load index
-		else:
-			logger.info("[Engine] Building FAISS index from scratch (no saved index found)")
-			self.vector_store = VectorStore(
-				embedding_dimension=self.embedding_generator.get_embedding_dimension(),  # dimension
-				use_cosine_similarity=use_cosine_similarity,  # metric
-			)
-			self._build_index()  # compute embeddings and add to index
+		# Initialize or load FAISS index with validation
+		self.vector_store = None
+		self.use_cosine_similarity = use_cosine_similarity
+		self._load_or_build_index(load_index_base_path)
 
 	def _index_files_exist(self, base_path: str) -> bool:
 		"""Check if both FAISS index and metadata files exist for a given base path."""
 		base = Path(base_path)  # wrap path
 		return base.with_suffix('.index').exists() and base.with_suffix('.pkl').exists()  # both present
+
+	def _load_or_build_index(self, base_path: Optional[str]):
+		"""
+		Load an existing index if it matches current movies; otherwise rebuild.
+		If base_path is provided, save new index to that location after building.
+		"""
+		if base_path and self._index_files_exist(base_path):
+			valid, reason = validate_index_against_movies(base_path, self.movies)
+			if valid:
+				logger.info(f"[Engine] Loaded saved FAISS index from '{base_path}' (validated)")
+				self.vector_store = VectorStore.load_index(base_path, movies=self.movies)
+				return
+			else:
+				logger.warning(f"[Engine] Saved index invalid ({reason}); rebuilding")
+				delete_index_files(base_path)
+		# Build new index
+		logger.info("[Engine] Building FAISS index from scratch")
+		self.vector_store = VectorStore(
+			embedding_dimension=self.embedding_generator.get_embedding_dimension(),
+			use_cosine_similarity=self.use_cosine_similarity,
+		)
+		self._build_index()
+		# Persist if path provided
+		if base_path:
+			self.vector_store.save_index(base_path)
+			logger.info(f"[Engine] Saved newly built index to '{base_path}'")
 
 	def _build_index(self):
 		"""Generate embeddings for all movies and add them to the FAISS index."""

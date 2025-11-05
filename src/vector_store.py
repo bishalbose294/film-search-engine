@@ -21,6 +21,56 @@ from .models import Movie  # movie data class
 from loguru import logger  # console logger
 
 
+def validate_index_against_movies(base_path: str, movies: List[Movie]) -> (bool, str):
+	"""
+	Validate that saved index/metadata at base_path match the provided movies.
+	Checks:
+	- Both .index and .pkl exist
+	- FAISS ntotal == len(movies)
+	- Metadata movie_ids length == len(movies)
+	- Movie ID set equality (to catch data drift)
+	Returns (is_valid, reason_if_invalid).
+	"""
+	base = Path(base_path)
+	index_path = base.with_suffix('.index')
+	meta_path = base.with_suffix('.pkl')
+	if not index_path.exists() or not meta_path.exists():
+		return False, "index/metadata files missing"
+	try:
+		# Load metadata first to avoid heavy FAISS read if obvious mismatch
+		with open(meta_path, 'rb') as f:
+			metadata = pickle.load(f)
+		stored_ids = metadata.get('movie_ids') or []
+		if len(stored_ids) != len(movies):
+			return False, f"metadata count {len(stored_ids)} != movies {len(movies)}"
+		# Optional but recommended: id set equality
+		movie_ids_now = {m.id for m in movies}
+		if set(stored_ids) != movie_ids_now:
+			return False, "movie id set mismatch"
+		# Load FAISS to confirm ntotal
+		index = faiss.read_index(str(index_path))
+		if index.ntotal != len(movies):
+			return False, f"faiss ntotal {index.ntotal} != movies {len(movies)}"
+		return True, "ok"
+	except Exception as e:
+		return False, f"validation error: {e}"
+
+
+def delete_index_files(base_path: str):
+	"""
+	Delete the .index and .pkl files associated with base_path if they exist.
+	"""
+	base = Path(base_path)
+	paths = [base.with_suffix('.index'), base.with_suffix('.pkl')]
+	for p in paths:
+		if p.exists():
+			try:
+				p.unlink()
+				logger.info(f"[VectorStore] Deleted stale file: {p}")
+			except Exception as e:
+				logger.warning(f"[VectorStore] Failed to delete {p}: {e}")
+
+
 class VectorStore:
 	"""
 	Manages FAISS vector store for fast similarity search.

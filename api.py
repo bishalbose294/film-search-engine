@@ -76,18 +76,13 @@ async def startup_event():
 	movies = loader.load_movies_from_jsonl('data/movies.jsonl')  # read dataset
 	logger.info(f"[API] Loaded {len(movies)} movies for indexing/search")  # record dataset size
 
-	# Detect if a prebuilt FAISS index exists to speed up startup
+	# Construct SearchEngine; it will validate/load or build/save as needed
 	index_base = Path('models') / 'faiss_index'  # base path (without extension)
-	index_exists = index_base.with_suffix('.index').exists() and index_base.with_suffix('.pkl').exists()  # both files present?
-	load_path = str(index_base) if index_exists else None  # pass to engine if present
+	ENGINE = SearchEngine(movies, load_index_base_path=str(index_base))
 
-	# Construct SearchEngine; it will load saved index or build anew based on load_path
-	ENGINE = SearchEngine(movies, load_index_base_path=load_path)  # create engine
-
-	# Compute and log startup duration and mode
+	# Compute and log startup duration
 	STARTUP_TIME_S = time.time() - start  # elapsed seconds
-	mode = 'Loaded saved index' if load_path else 'Built new index'  # mode string
-	logger.info(f"[API] Startup complete in {STARTUP_TIME_S:.2f}s. {mode}.")  # summary log
+	logger.info(f"[API] Startup complete in {STARTUP_TIME_S:.2f}s.")  # summary log
 
 
 # Simple health endpoint for readiness checks

@@ -37,9 +37,8 @@ def init_local_engine() -> Optional[SearchEngine]:
 		loader = DataLoader()  # create loader
 		movies = loader.load_movies_from_jsonl('data/movies.jsonl')  # read dataset
 		index_base = Path('models') / 'faiss_index'  # saved index base path
-		# If both files exist, pass path to engine to load; else engine will build
-		load_path = str(index_base) if index_base.with_suffix('.index').exists() and index_base.with_suffix('.pkl').exists() else None
-		engine = SearchEngine(movies, load_index_base_path=load_path)  # create engine
+		# Engine will validate/load or build/save as needed
+		engine = SearchEngine(movies, load_index_base_path=str(index_base))
 		return engine  # success
 	except Exception as e:
 		# Show an error in the UI so users know local mode failed

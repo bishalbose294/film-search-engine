@@ -22,6 +22,7 @@ from loguru import logger  # console logging
 from src.data_loader import DataLoader  # data ingestion
 from src.embeddings import EmbeddingGenerator  # embedding model wrapper
 from src.vector_store import VectorStore  # FAISS index helper
+from src.vector_store import validate_index_against_movies, delete_index_files
 
 
 def main():
@@ -42,6 +43,17 @@ def main():
 	loader = DataLoader()  # loader instance
 	movies = loader.load_movies_from_jsonl(str(data_path))  # read dataset
 	logger.info(f"[OK] Loaded {len(movies)} movies")  # confirm count
+
+	# Early exit if existing index is valid
+	valid, reason = validate_index_against_movies(str(index_base), movies)
+	if valid:
+		logger.info("Existing index is valid. Nothing to do.")
+		logger.info("=" * 60)
+		return
+	else:
+		if (index_base.with_suffix('.index').exists() or index_base.with_suffix('.pkl').exists()):
+			logger.warning(f"Stale index detected ({reason}); deleting and rebuilding...")
+			delete_index_files(str(index_base))
 
 	# 2) Generate embeddings
 	logger.info("\n[2/4] Generating embeddings...")
