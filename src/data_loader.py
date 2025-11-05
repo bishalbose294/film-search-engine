@@ -24,6 +24,7 @@ class DataLoader:
 	GENRE_SYNONYMS = {
 		'sci-fi': 'Science Fiction',  # map hyphenated to canonical
 		'sci fi': 'Science Fiction',  # map spaced form
+			'sci fy': 'Science Fiction',  # common misspelling with y
 		'science-fiction': 'Science Fiction',  # map with dash
 		'science fiction': 'Science Fiction',  # map with space
 		'scifi': 'Science Fiction',  # common variant

@@ -182,7 +182,7 @@ class QueryParser:
 		# Pattern-based extraction for common actor phrases like "with Tom Cruise", "with Tom Cruise in it", "starring X"
 		# This catches cases where spaCy might miss the entity
 		actor_patterns = [
-			r"\bwith\s+([a-z]+\s+[a-z]+(?:\s+[a-z]+)?)\s+(?:in\s+it|in\s+them)?",
+			r"\bwith\s+([a-z]+\s+[a-z]+(?:\s+[a-z]+)?)\b(?:\s+(?:in\s+it|in\s+them))?",
 			r"\bstarring\s+([a-z]+\s+[a-z]+(?:\s+[a-z]+)?)",
 			r"\bfeaturing\s+([a-z]+\s+[a-z]+(?:\s+[a-z]+)?)",
 			r"\b([a-z]+\s+[a-z]+)\s+in\s+it\b",
@@ -198,6 +198,7 @@ class QueryParser:
 		director_patterns = [
 			r"\bdirected\s+by\s+([a-z]+\s+[a-z]+(?:\s+[a-z]+)?)",
 			r"\bby\s+([a-z]+\s+[a-z]+(?:\s+[a-z]+)?)\s+(?:director|directed)",
+			r"\bby\s+([a-z]+\s+[a-z]+(?:\s+[a-z]+)?)\b",
 		]
 		for pattern in director_patterns:
 			for match in re.finditer(pattern, q, re.I):
@@ -248,6 +249,10 @@ class QueryParser:
 		remove.update(self.GENRE_SYNONYMS.keys())
 		remove.update([a for a in actors])
 		remove.update([d for d in directors])
+		# Also remove individual tokens from matched names (e.g., 'tom', 'hanks')
+		for name in list(actors) + list(directors):
+			for part in name.split():
+				remove.add(part)
 		remove.update({
 			"movie", "movies", "film", "films", "starring", "with", "featuring",
 			"directed", "by", "from", "in", "the", "of", "about", "and", "or"

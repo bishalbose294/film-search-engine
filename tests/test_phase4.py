@@ -16,9 +16,9 @@ def test_phase4():
 	loader = DataLoader()
 	movies = loader.load_movies_from_jsonl('data/movies.jsonl')
 
-	print("\n[Step 1] Building Search Engine (this embeds and indexes once)...")
+	print("\n[Step 1] Building/Loading Search Engine (validates index)...")
 	start = time.time()
-	engine = SearchEngine(movies)
+	engine = SearchEngine(movies, load_index_base_path='models/faiss_index')
 	build_time = time.time() - start
 	print(f"[OK] Search engine built in {build_time:.2f}s")
 

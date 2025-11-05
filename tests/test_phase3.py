@@ -9,33 +9,28 @@ from pathlib import Path
 
 from src.data_loader import DataLoader
 from src.query_parser import QueryParser
-from src.embeddings import EmbeddingGenerator
-from src.vector_store import VectorStore
+from src.search_engine import SearchEngine
 
 
 def ensure_models_dir():
-	p = Path('models')
-	if not p.exists():
-		p.mkdir(parents=True, exist_ok=True)
+    p = Path('models')
+    if not p.exists():
+        p.mkdir(parents=True, exist_ok=True)
 
 
-def build_vector_store(movies):
-	"""Build vector store (FAISS) from movies; used for demo search."""
-	emb = EmbeddingGenerator('all-MiniLM-L6-v2')
-	movie_embeddings = emb.generate_movie_embeddings(movies, batch_size=32, show_progress=True)
-	store = VectorStore(emb.get_embedding_dimension(), use_cosine_similarity=True)
-	store.add_movies(movies, movie_embeddings)
-	return emb, store
+def build_engine(movies):
+    """Create SearchEngine that validates/loads or builds/saves index."""
+    ensure_models_dir()
+    index_base = 'models/faiss_index'
+    engine = SearchEngine(movies, load_index_base_path=index_base)
+    return engine
 
 
-def demo_search(embedding_gen, vector_store, raw_query):
-	print(f"\nVector search demo for: '{raw_query}'")
-	q_emb = embedding_gen.generate_query_embedding(raw_query)
-	results = vector_store.search(q_emb, top_k=5)
-	for i, (mid, score) in enumerate(results, 1):
-		m = vector_store.get_movie_by_id(mid)
-		if m:
-			print(f"  {i}. [{score:.3f}] {m.title.title()} ({m.year}) - {', '.join(m.genres[:3])}")
+def demo_search(engine: SearchEngine, raw_query: str):
+    print(f"\nVector search demo for: '{raw_query}'")
+    results = engine.search(raw_query, top_k=5)
+    for i, r in enumerate(results, 1):
+        print(f"  {i}. [{r.similarity:.3f}] {r.movie.title.title()} ({r.movie.year}) - {', '.join(r.movie.genres[:3])}")
 
 
 def test_phase3():
@@ -76,13 +71,13 @@ def test_phase3():
 		print(f"  Keywords   : {pq.keywords}")
 
 	# Optional: quick semantic search demo for first two queries
-	print("\n[Step 3] Optional vector search demo (building index)...")
+	print("\n[Step 3] Optional vector search demo (load-or-build index)...")
 	start = time.time()
-	emb, store = build_vector_store(movies)
-	print(f"[OK] Built vector store in {time.time() - start:.2f}s")
+	engine = build_engine(movies)
+	print(f"[OK] Engine ready in {time.time() - start:.2f}s")
 
 	for q in queries[:2]:
-		demo_search(emb, store, q)
+		demo_search(engine, q)
 
 	print("\n" + "="*60)
 	print("Phase 3 complete!")
