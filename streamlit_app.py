@@ -27,7 +27,7 @@ DEFAULT_API_URL = "http://localhost:8000"  # default API base URL
 st.set_page_config(page_title="Film Search Engine", layout="wide")  # wide layout
 
 # Main page title
-st.title("🎬 Film Search Engine")  # friendly header
+st.title("🎬 CineMind – A Smart Movie Search Engine")  # friendly header
 
 # Cache the local engine so we only load the model/index once per session
 @st.cache_resource(show_spinner=True)
@@ -81,7 +81,7 @@ col1, col2 = st.columns([1, 3])  # grid with ratio 1:3
 with col1:
 	search_btn = st.button("Search", type="primary")  # triggers a search
 with col2:
-	st.caption("Tip: Try 'funny films from the early 2000s' or 'horror movies directed by Wes Craven'")  # helpful examples
+	st.caption("Tip: Try 'funny films from the early 2000s' or 'robert downey movies'")  # helpful examples
 
 # When user clicks Search and the field isn't empty, perform the query
 if search_btn and query.strip():
